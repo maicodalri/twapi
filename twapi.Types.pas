@@ -14,11 +14,15 @@ type
   TConfigEnv = class
   private
     FIndexFilePage: string;
+    FLicManURL: string;
     FServerPort: Integer;
+    FSystemID: integer;
     FDebug: Boolean;
     FJWTSecret: string; // [IA] Armazena o segredo JWT em memória após carregar/gerar
     FLock: TCriticalSection; // [IA] Garante thread-safety ao carregar/criar o JWTSecret no .conf
     function GetJWTSecret: string; // [IA] Lê o JWTSecret do .conf ou gera automaticamente se não existir
+    function GetLicManURL: string;
+    function GetConfiFileName: string;
     procedure SetJWTSecret(const AValue: string);
   public
     constructor Create;
@@ -26,7 +30,9 @@ type
     property Debug: Boolean read FDebug write FDebug;
     property IndexFilePage: string read FIndexFilePage write FIndexFilePage;
     property ServerPort: Integer read FServerPort write FServerPort;
+    property SystemID: Integer read FSystemId write FSystemId;
     property JWTSecret: string read GetJWTSecret write SetJWTSecret; // [IA] Propriedade global para obter/definir o JWT_SECRET do projeto
+    property LicManURL: string read GetLicManURL;
   end;
 
 const
@@ -37,7 +43,9 @@ const
   MASTER_DB          = 'masterdb';
   SECT_DB_NAME       = 'DB';
   SECT_BASE_NAME     = 'BASE';
-  KEY_JWT_SECRET     = 'JWTSecret'; // [IA] Nome da chave no arquivo .conf dentro da seção [BASE]
+  KEY_JWT_SECRET     = 'JWTSecret'; //Nome da chave no arquivo .conf dentro da seção [BASE]
+  LICMAN_URL         = 'LicManURL';
+  SYSTEM_ID          = 'SystemID';
 
 var
   GConfigEnv: TConfigEnv;
@@ -59,11 +67,10 @@ begin
   inherited Destroy;
 end;
 
-// [IA] Obtém o JWTSecret da memória; se vazio, busca no .conf e, se não existir no .conf, gera um novo automaticamente e persiste
+//Obtém o JWTSecret da memória; se vazio, busca no .conf e, se não existir no .conf, gera um novo automaticamente e persiste
 function TConfigEnv.GetJWTSecret: string;
 var
   LIni: TIniFile;
-  LFileName: string;
   LGUID1, LGUID2: TGUID;
   LGenerated: string;
 begin
@@ -74,13 +81,12 @@ begin
   try
     if FJWTSecret = '' then
     begin
-      LFileName := ChangeFileExt(ParamStr(0), '.conf');
-      LIni := TIniFile.Create(LFileName);
+      LIni := TIniFile.Create(GetConfiFileName);
       try
         FJWTSecret := Trim(LIni.ReadString(SECT_BASE_NAME, KEY_JWT_SECRET, ''));
         if FJWTSecret = '' then
         begin
-          // [IA] Gera chave aleatória de 64 caracteres hexadecimais (256 bits) usando 2 GUIDs
+          //Gera chave aleatória de 64 caracteres hexadecimais (256 bits) usando 2 GUIDs
           CreateGUID(LGUID1);
           CreateGUID(LGUID2);
           LGenerated := GUIDToString(LGUID1) + GUIDToString(LGUID2);
@@ -100,6 +106,35 @@ begin
   finally
     FLock.Leave;
   end;
+end;
+
+function TConfigEnv.GetLicManURL: string;
+var
+  LIni: TIniFile;
+begin
+
+  if Self.FLicManURL = '' then
+  begin
+
+    LIni := TIniFile.Create(GetConfiFileName);
+    try
+      Self.FLicManURL := LIni.ReadString(SECT_BASE_NAME, LICMAN_URL, '');
+    finally
+      FreeAndNil(LIni);
+    end;
+
+  end;
+
+  if Self.FLicManURL = '' then
+    raise Exception.CreateFmt('%s não encotnrada em [%s].', [LICMAN_URL, GetConfiFileName]);
+
+  Result:= Self.FLicManURL;
+
+end;
+
+function TConfigEnv.GetConfiFileName: string;
+begin
+  Result:= ChangeFileExt(ParamStr(0), '.conf');
 end;
 
 procedure TConfigEnv.SetJWTSecret(const AValue: string);
